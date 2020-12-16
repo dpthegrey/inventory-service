@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io/ioutil"
 	"log"
 	"net/http"
 )
@@ -12,7 +13,7 @@ type Product struct {
 	Sku            string `json:"sku"`
 	Upc            string `json:"upc"`
 	PricePerUnit   string `json:"pricePerUnit"`
-	QuantityOnHand string `json:"quantityOnHand"`
+	QuantityOnHand int    `json:"quantityOnHand"`
 	ProductName    string `json:"productName"`
 }
 
@@ -47,27 +48,59 @@ func init() {
 		"quantityOnHand":5905,
 		"productName":"leg shade"
 	}
-]`
+	]`
 	err := json.Unmarshal([]byte(productsJSON), &productList)
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-type fooHandler struct {
-	Message string
+func getNextID() int {
+	highestID := -1
+	for _, product := range productList {
+		if highestID < product.ProductID {
+			highestID = product.ProductID
+		}
+	}
+	return highestID + 1
+
 }
 
-func (f *fooHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte(f.Message))
-}
-
-func barHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("bar called"))
+func productsHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		productsJSON, err := json.Marshal(productList)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-type", "application/json")
+		w.Write(productsJSON)
+	case http.MethodPost:
+		// add a new product to the list
+		var newProduct Product
+		bodyBytes, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		err = json.Unmarshal(bodyBytes, &newProduct)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if newProduct.ProductID != 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		newProduct.ProductID = getNextID()
+		productList = append(productList, newProduct)
+		w.WriteHeader(http.StatusCreated)
+		return
+	}
 }
 
 func main() {
-	http.Handle("/foo", &fooHandler{Message: "foo called"})
-	http.HandleFunc("/bar", barHandler)
-	http.ListenAndServe(":5000", nil)
+	http.HandleFunc("/products", productsHandler)
+	log.Fatal(http.ListenAndServe(":5000", nil))
 }
